@@ -128,9 +128,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="ByteKeeper.cpp" />
+    <ClCompile Include="DatabaseManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="database.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="DatabaseManager.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -18,8 +18,16 @@
     <ClCompile Include="ByteKeeper.cpp">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
+    <ClCompile Include="DatabaseManager.cpp">
+      <Filter>Исходные файлы</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="database.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="DatabaseManager.h">
+      <Filter>Файлы заголовков</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
