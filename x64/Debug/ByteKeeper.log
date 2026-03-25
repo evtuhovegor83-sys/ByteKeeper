@@ -1,2 +1,4 @@
 ﻿  ByteKeeper.cpp
+D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(174,21): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
+D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(175,22): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
   ByteKeeper.vcxproj -> D:\IP31\УП.01.01 Евтухов\ByteKeeper\x64\Debug\ByteKeeper.exe

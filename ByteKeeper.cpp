@@ -4,6 +4,7 @@
 #include <regex>
 #include <string>
 #include <cwchar>
+#include <iomanip>
 #include "DatabaseManager.h"
 
 using namespace std;
@@ -143,6 +144,109 @@ void addFile() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
+// Функция просмотра всех файлов (с динамической шириной)
+// Функция просмотра всех файлов (с динамической шириной)
+void viewAllFiles() {
+    SQLHSTMT stmt = db.getStatement();
+
+    SQLWCHAR query[] = L"SELECT r.ResourceID, r.Name, r.Size, c.CategoryName, u.UserName, r.isDeleted "
+        L"FROM Resources r "
+        L"JOIN Categories c ON r.CategoryID = c.CategoryID "
+        L"JOIN Users u ON r.OwnerID = u.UserID";
+
+    SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
+
+    if (ret != SQL_SUCCESS) {
+        cout << "Ошибка при выполнении запроса.\n";
+        return;
+    }
+
+    // Сначала проходим по данным, чтобы узнать максимальную длину имени
+    int maxNameLen = 15;
+    int maxOwnerLen = 15;
+
+    while (SQLFetch(stmt) == SQL_SUCCESS) {
+        SQLWCHAR name[256];
+        SQLWCHAR owner[256];
+        SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
+        SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
+
+        int nameLen = wcslen(name);
+        int ownerLen = wcslen(owner);
+        if (nameLen > maxNameLen) maxNameLen = min(nameLen, 30);
+        if (ownerLen > maxOwnerLen) maxOwnerLen = min(ownerLen, 30);
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+
+    // Повторно выполняем запрос для вывода
+    ret = SQLExecDirectW(stmt, query, SQL_NTS);
+    if (ret != SQL_SUCCESS) {
+        cout << "Ошибка при выполнении запроса.\n";
+        return;
+    }
+
+    // Заголовок таблицы
+    cout << "\n";
+    cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+    cout << "| " << left << setw(maxNameLen) << "Имя файла"
+        << " | " << setw(13) << "Размер (байт)"
+        << " | " << setw(maxOwnerLen) << "Владелец"
+        << " | " << setw(18) << "Категория"
+        << " | " << setw(10) << "Статус" << " |\n";
+    cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+
+    int count = 0;
+    while (SQLFetch(stmt) == SQL_SUCCESS) {
+        int id;
+        SQLWCHAR name[256];
+        long long size;
+        SQLWCHAR category[256];
+        SQLWCHAR owner[256];
+        int isDeleted;
+
+        SQLGetData(stmt, 1, SQL_C_LONG, &id, 0, NULL);
+        SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
+        SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+        SQLGetData(stmt, 4, SQL_C_WCHAR, category, sizeof(category), NULL);
+        SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
+        SQLGetData(stmt, 6, SQL_C_LONG, &isDeleted, 0, NULL);
+
+        // Преобразуем широкие строки в обычные
+        char nameBuf[256];
+        char ownerBuf[256];
+        wcstombs(nameBuf, name, 256);
+        wcstombs(ownerBuf, owner, 256);
+
+        string strName(nameBuf);
+        string strOwner(ownerBuf);
+        string strCategory;
+        wcstombs(nullptr, category, 0); // упрощённо, категория выводится как есть
+
+        // Обрезаем длинные имена
+        if (strName.length() > maxNameLen) strName = strName.substr(0, maxNameLen - 3) + "...";
+        if (strOwner.length() > maxOwnerLen) strOwner = strOwner.substr(0, maxOwnerLen - 3) + "...";
+
+        string status = (isDeleted == 1) ? "В корзине" : "Активен";
+
+        // Выводим категорию
+        char categoryBuf[256];
+        wcstombs(categoryBuf, category, 256);
+
+        cout << "| " << left << setw(maxNameLen) << strName
+            << " | " << setw(13) << size
+            << " | " << setw(maxOwnerLen) << strOwner
+            << " | " << setw(18) << categoryBuf
+            << " | " << setw(10) << status << " |\n";
+        count++;
+    }
+
+    cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+    cout << "Всего записей: " << count << "\n";
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
 int main() {
     setlocale(LC_ALL, "Russian");
 
@@ -176,6 +280,9 @@ int main() {
         switch (choice) {
         case 1:
             addFile();
+            break;
+        case 2:
+            viewAllFiles();
             break;
         case 0:
             cout << "Выход из программы...\n";
