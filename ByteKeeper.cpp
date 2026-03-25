@@ -336,6 +336,74 @@ void searchByName() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
+// Функция статистики (COUNT/SUM)
+void showStatistics() {
+    SQLHSTMT stmt = db.getStatement();
+
+    // Запрос для статистики
+    SQLWCHAR query[] = L"SELECT "
+        L"COUNT(*) as TotalFiles, "
+        L"SUM(Size) as TotalSize "
+        L"FROM Resources "
+        L"WHERE isDeleted = 0";
+
+    SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
+
+    if (ret != SQL_SUCCESS) {
+        cout << "Ошибка при выполнении запроса статистики.\n";
+        SQLFreeStmt(stmt, SQL_CLOSE);
+        return;
+    }
+
+    int totalFiles = 0;
+    long long totalSize = 0;
+
+    if (SQLFetch(stmt) == SQL_SUCCESS) {
+        SQLGetData(stmt, 1, SQL_C_LONG, &totalFiles, 0, NULL);
+        SQLGetData(stmt, 2, SQL_C_SLONG, &totalSize, 0, NULL);
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+
+    // Вывод статистики
+    cout << "\n=== СТАТИСТИКА АРХИВА ===\n";
+    cout << "Всего файлов: " << totalFiles << "\n";
+    cout << "Общий размер: " << totalSize << " байт\n";
+
+    if (totalFiles > 0) {
+        cout << "Средний размер: " << (totalSize / totalFiles) << " байт\n";
+    }
+
+    // Статистика по категориям
+    SQLWCHAR queryByCategory[] = L"SELECT c.CategoryName, COUNT(r.ResourceID), SUM(r.Size) "
+        L"FROM Resources r "
+        L"JOIN Categories c ON r.CategoryID = c.CategoryID "
+        L"WHERE r.isDeleted = 0 "
+        L"GROUP BY c.CategoryName";
+
+    ret = SQLExecDirectW(stmt, queryByCategory, SQL_NTS);
+
+    if (ret == SQL_SUCCESS) {
+        cout << "\n--- По категориям ---\n";
+        while (SQLFetch(stmt) == SQL_SUCCESS) {
+            SQLWCHAR category[100];
+            int count;
+            long long size;
+
+            SQLGetData(stmt, 1, SQL_C_WCHAR, category, sizeof(category), NULL);
+            SQLGetData(stmt, 2, SQL_C_LONG, &count, 0, NULL);
+            SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+
+            char categoryBuf[100];
+            wcstombs(categoryBuf, category, 100);
+
+            cout << "  " << categoryBuf << ": " << count << " файлов, " << size << " байт\n";
+        }
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
 int main() {
     setlocale(LC_ALL, "Russian");
 
@@ -375,6 +443,9 @@ int main() {
             break;
         case 3:
             searchByName();
+            break;
+        case 6:
+            showStatistics();
             break;
         case 0:
             cout << "Выход из программы...\n";
