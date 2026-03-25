@@ -145,7 +145,6 @@ void addFile() {
 }
 
 // Функция просмотра всех файлов (с динамической шириной)
-// Функция просмотра всех файлов (с динамической шириной)
 void viewAllFiles() {
     SQLHSTMT stmt = db.getStatement();
 
@@ -221,7 +220,7 @@ void viewAllFiles() {
         string strName(nameBuf);
         string strOwner(ownerBuf);
         string strCategory;
-        wcstombs(nullptr, category, 0); // упрощённо, категория выводится как есть
+        wcstombs(nullptr, category, 0);
 
         // Обрезаем длинные имена
         if (strName.length() > maxNameLen) strName = strName.substr(0, maxNameLen - 3) + "...";
@@ -243,6 +242,96 @@ void viewAllFiles() {
 
     cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
     cout << "Всего записей: " << count << "\n";
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
+// Функция поиска по имени (LIKE)
+void searchByName() {
+    string mask;
+    cout << "Введите часть имени для поиска: ";
+    cin >> mask;
+
+    SQLHSTMT stmt = db.getStatement();
+
+    SQLWCHAR query[] = L"SELECT r.ResourceID, r.Name, r.Size, c.CategoryName, u.UserName, r.isDeleted "
+        L"FROM Resources r "
+        L"JOIN Categories c ON r.CategoryID = c.CategoryID "
+        L"JOIN Users u ON r.OwnerID = u.UserID "
+        L"WHERE r.Name LIKE ?";
+
+    SQLRETURN ret = SQLPrepareW(stmt, query, SQL_NTS);
+
+    string searchPattern = "%" + mask + "%";
+    SQLWCHAR searchParam[256];
+    mbstowcs((wchar_t*)searchParam, searchPattern.c_str(), 256);
+
+    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, searchParam, 0, NULL);
+
+    ret = SQLExecute(stmt);
+
+    if (ret != SQL_SUCCESS) {
+        cout << "Ошибка при выполнении поиска.\n";
+        SQLFreeStmt(stmt, SQL_CLOSE);
+        return;
+    }
+
+    // Заголовок таблицы
+    cout << "\n";
+    cout << "+" << string(25, '-') << "+" << string(15, '-') << "+" << string(20, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+    cout << "| " << left << setw(23) << "Имя файла"
+        << " | " << setw(13) << "Размер (байт)"
+        << " | " << setw(18) << "Владелец"
+        << " | " << setw(18) << "Категория"
+        << " | " << setw(10) << "Статус" << " |\n";
+    cout << "+" << string(25, '-') << "+" << string(15, '-') << "+" << string(20, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+
+    int count = 0;
+    while (SQLFetch(stmt) == SQL_SUCCESS) {
+        int id;
+        SQLWCHAR name[256];
+        long long size;
+        SQLWCHAR category[256];
+        SQLWCHAR owner[256];
+        int isDeleted;
+
+        SQLGetData(stmt, 1, SQL_C_LONG, &id, 0, NULL);
+        SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
+        SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+        SQLGetData(stmt, 4, SQL_C_WCHAR, category, sizeof(category), NULL);
+        SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
+        SQLGetData(stmt, 6, SQL_C_LONG, &isDeleted, 0, NULL);
+
+        // Преобразуем широкие строки
+        char nameBuf[256], ownerBuf[256], categoryBuf[256];
+        wcstombs(nameBuf, name, 256);
+        wcstombs(ownerBuf, owner, 256);
+        wcstombs(categoryBuf, category, 256);
+
+        string strName(nameBuf);
+        string strOwner(ownerBuf);
+
+        if (strName.length() > 23) strName = strName.substr(0, 20) + "...";
+        if (strOwner.length() > 18) strOwner = strOwner.substr(0, 15) + "...";
+
+        string status = (isDeleted == 1) ? "В корзине" : "Активен";
+
+        cout << "| " << left << setw(23) << strName
+            << " | " << setw(13) << size
+            << " | " << setw(18) << strOwner
+            << " | " << setw(18) << categoryBuf
+            << " | " << setw(10) << status << " |\n";
+        count++;
+    }
+
+    cout << "+" << string(25, '-') << "+" << string(15, '-') << "+" << string(20, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+
+    if (count == 0) {
+        cout << "Ничего не найдено.\n";
+    }
+    else {
+        cout << "Найдено записей: " << count << "\n";
+    }
 
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
@@ -283,6 +372,9 @@ int main() {
             break;
         case 2:
             viewAllFiles();
+            break;
+        case 3:
+            searchByName();
             break;
         case 0:
             cout << "Выход из программы...\n";
