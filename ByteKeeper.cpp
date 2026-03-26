@@ -97,7 +97,7 @@ void addFile() {
     }
 
     // Проверка дубликатов
-    SQLWCHAR queryCheck[] = L"SELECT ResourceID FROM Resources WHERE Name = ?";
+    SQLWCHAR queryCheck[] = L"SELECT ResourceID FROM Resources WHERE Name = ? AND isDeleted = 0";
     ret = SQLPrepareW(stmt, queryCheck, SQL_NTS);
 
     SQLWCHAR nameParam[255];
@@ -119,7 +119,7 @@ void addFile() {
     }
 
     // INSERT
-    SQLWCHAR queryInsert[] = L"INSERT INTO Resources (Name, Size, CategoryID, OwnerID) VALUES (?, ?, ?, ?)";
+    SQLWCHAR queryInsert[] = L"INSERT INTO Resources (Name, Size, CategoryID, OwnerID, isDeleted) VALUES (?, ?, ?, ?, 0)";
     ret = SQLPrepareW(stmt, queryInsert, SQL_NTS);
 
     SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
@@ -258,7 +258,7 @@ void searchByName() {
         L"FROM Resources r "
         L"JOIN Categories c ON r.CategoryID = c.CategoryID "
         L"JOIN Users u ON r.OwnerID = u.UserID "
-        L"WHERE r.Name LIKE ?";
+        L"WHERE r.Name LIKE ? AND r.isDeleted = 0";
 
     SQLRETURN ret = SQLPrepareW(stmt, query, SQL_NTS);
 
@@ -340,7 +340,6 @@ void searchByName() {
 void showStatistics() {
     SQLHSTMT stmt = db.getStatement();
 
-    // Запрос для статистики
     SQLWCHAR query[] = L"SELECT "
         L"COUNT(*) as TotalFiles, "
         L"SUM(Size) as TotalSize "
@@ -365,7 +364,6 @@ void showStatistics() {
 
     SQLFreeStmt(stmt, SQL_CLOSE);
 
-    // Вывод статистики
     cout << "\n=== СТАТИСТИКА АРХИВА ===\n";
     cout << "Всего файлов: " << totalFiles << "\n";
     cout << "Общий размер: " << totalSize << " байт\n";
@@ -374,7 +372,6 @@ void showStatistics() {
         cout << "Средний размер: " << (totalSize / totalFiles) << " байт\n";
     }
 
-    // Статистика по категориям
     SQLWCHAR queryByCategory[] = L"SELECT c.CategoryName, COUNT(r.ResourceID), SUM(r.Size) "
         L"FROM Resources r "
         L"JOIN Categories c ON r.CategoryID = c.CategoryID "
@@ -399,6 +396,68 @@ void showStatistics() {
 
             cout << "  " << categoryBuf << ": " << count << " файлов, " << size << " байт\n";
         }
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
+// Функция удаления в корзину (Soft Delete)
+void softDeleteFile() {
+    string name;
+    cout << "Введите имя файла для удаления: ";
+    cin >> name;
+
+    SQLHSTMT stmt = db.getStatement();
+
+    // Проверяем, существует ли файл и не удалён ли уже
+    SQLWCHAR queryCheck[] = L"SELECT ResourceID, isDeleted FROM Resources WHERE Name = ?";
+    SQLRETURN ret = SQLPrepareW(stmt, queryCheck, SQL_NTS);
+
+    SQLWCHAR nameParam[255];
+    mbstowcs((wchar_t*)nameParam, name.c_str(), 255);
+    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
+
+    ret = SQLExecute(stmt);
+
+    int resourceID = 0;
+    int isDeleted = 0;
+
+    if (ret == SQL_SUCCESS && SQLFetch(stmt) == SQL_SUCCESS) {
+        SQLGetData(stmt, 1, SQL_C_LONG, &resourceID, 0, NULL);
+        SQLGetData(stmt, 2, SQL_C_LONG, &isDeleted, 0, NULL);
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+
+    if (resourceID == 0) {
+        cout << "Файл \"" << name << "\" не найден.\n";
+        return;
+    }
+
+    if (isDeleted == 1) {
+        cout << "Файл уже находится в корзине.\n";
+        return;
+    }
+
+    // Выполняем Soft Delete
+    SQLWCHAR queryDelete[] = L"UPDATE Resources SET isDeleted = 1 WHERE Name = ?";
+    ret = SQLPrepareW(stmt, queryDelete, SQL_NTS);
+    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
+
+    ret = SQLExecute(stmt);
+
+    if (ret == SQL_SUCCESS) {
+        cout << "Файл \"" << name << "\" перемещён в корзину.\n";
+
+        // Логирование
+        SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
+        SQLPrepareW(stmt, queryLog, SQL_NTS);
+        wstring logMsg = L"Удалён в корзину: " + wstring(nameParam);
+        SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, (SQLWCHAR*)logMsg.c_str(), 0, NULL);
+        SQLExecute(stmt);
+    }
+    else {
+        cout << "Ошибка при удалении файла.\n";
     }
 
     SQLFreeStmt(stmt, SQL_CLOSE);
@@ -443,6 +502,9 @@ int main() {
             break;
         case 3:
             searchByName();
+            break;
+        case 4:
+            softDeleteFile();
             break;
         case 6:
             showStatistics();
