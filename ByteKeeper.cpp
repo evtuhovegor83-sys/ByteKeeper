@@ -463,6 +463,68 @@ void softDeleteFile() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
+// Функция восстановления из корзины
+void restoreFile() {
+    string name;
+    cout << "Введите имя файла для восстановления: ";
+    cin >> name;
+
+    SQLHSTMT stmt = db.getStatement();
+
+    // Проверяем, существует ли файл и находится ли в корзине
+    SQLWCHAR queryCheck[] = L"SELECT ResourceID, isDeleted FROM Resources WHERE Name = ?";
+    SQLRETURN ret = SQLPrepareW(stmt, queryCheck, SQL_NTS);
+
+    SQLWCHAR nameParam[255];
+    mbstowcs((wchar_t*)nameParam, name.c_str(), 255);
+    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
+
+    ret = SQLExecute(stmt);
+
+    int resourceID = 0;
+    int isDeleted = 0;
+
+    if (ret == SQL_SUCCESS && SQLFetch(stmt) == SQL_SUCCESS) {
+        SQLGetData(stmt, 1, SQL_C_LONG, &resourceID, 0, NULL);
+        SQLGetData(stmt, 2, SQL_C_LONG, &isDeleted, 0, NULL);
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+
+    if (resourceID == 0) {
+        cout << "Файл \"" << name << "\" не найден.\n";
+        return;
+    }
+
+    if (isDeleted == 0) {
+        cout << "Файл не находится в корзине.\n";
+        return;
+    }
+
+    // Выполняем восстановление
+    SQLWCHAR queryRestore[] = L"UPDATE Resources SET isDeleted = 0 WHERE Name = ?";
+    ret = SQLPrepareW(stmt, queryRestore, SQL_NTS);
+    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
+
+    ret = SQLExecute(stmt);
+
+    if (ret == SQL_SUCCESS) {
+        cout << "Файл \"" << name << "\" восстановлен из корзины.\n";
+
+        // Логирование (если таблица Logs есть)
+        SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
+        SQLPrepareW(stmt, queryLog, SQL_NTS);
+        wstring logMsg = L"Восстановлен из корзины: " + wstring(nameParam);
+        SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, (SQLWCHAR*)logMsg.c_str(), 0, NULL);
+        SQLExecute(stmt);
+    }
+    else {
+        cout << "Ошибка при восстановлении файла.\n";
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
 int main() {
     setlocale(LC_ALL, "Russian");
 
@@ -505,6 +567,9 @@ int main() {
             break;
         case 4:
             softDeleteFile();
+            break;
+        case 5:
+            restoreFile();
             break;
         case 6:
             showStatistics();
