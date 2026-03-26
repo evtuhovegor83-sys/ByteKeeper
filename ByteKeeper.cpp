@@ -40,6 +40,7 @@ void showMenu() {
     cout << "8. Экспорт в CSV\n";
     cout << "9. Показать логи\n";
     cout << "10. Просмотр с пагинацией\n";
+    cout << "11. Проверить состояние сервера\n";
     cout << "0. Выход\n";
     cout << "========================================\n";
     cout << "Ваш выбор: ";
@@ -954,6 +955,51 @@ void viewAllFilesPaginated() {
     }
 }
 
+// Функция проверки состояния сервера (пинг)
+void pingServer() {
+    SQLHSTMT stmt = db.getStatement();
+
+    // Простой запрос для проверки соединения
+    SQLWCHAR query[] = L"SELECT 1";
+    SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
+
+    if (ret == SQL_SUCCESS) {
+        setColor(COLOR_GREEN);
+        cout << "Сервер отвечает. Соединение активно.\n";
+        setColor(COLOR_DEFAULT);
+
+        // Логирование
+        SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
+        SQLPrepareW(stmt, queryLog, SQL_NTS);
+        wstring logMsg = L"Проверка соединения: успешно";
+        SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, (SQLWCHAR*)logMsg.c_str(), 0, NULL);
+        SQLExecute(stmt);
+    }
+    else {
+        setColor(COLOR_RED);
+        cout << "Сервер не отвечает! Соединение потеряно.\n";
+        setColor(COLOR_DEFAULT);
+
+        // Получаем диагностическую информацию
+        SQLWCHAR sqlState[6], message[256];
+        SQLINTEGER nativeError;
+        SQLSMALLINT textLen;
+
+        if (SQLGetDiagRecW(SQL_HANDLE_STMT, stmt, 1, sqlState, &nativeError, message, sizeof(message), &textLen) == SQL_SUCCESS) {
+            char msgBuf[256];
+            wcstombs(msgBuf, message, 256);
+            setColor(COLOR_YELLOW);
+            cout << "Диагностика: " << msgBuf << " (SQLSTATE: ";
+            char stateBuf[6];
+            wcstombs(stateBuf, sqlState, 6);
+            cout << stateBuf << ")\n";
+            setColor(COLOR_DEFAULT);
+        }
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
 int main() {
     setlocale(LC_ALL, "Russian");
 
@@ -1018,6 +1064,9 @@ int main() {
             break;
         case 10:
             viewAllFilesPaginated();
+            break;
+        case 11:
+            pingServer();
             break;
         case 0:
             cout << "Выход из программы...\n";

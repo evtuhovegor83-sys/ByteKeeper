@@ -1,6 +1,6 @@
 ﻿  ByteKeeper.cpp
-D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(203,21): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
-D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(204,22): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
-D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(841,25): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
-D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(842,26): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
+D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(204,21): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
+D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(205,22): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
+D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(842,25): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
+D:\IP31\УП.01.01 Евтухов\ByteKeeper\ByteKeeper\ByteKeeper.cpp(843,26): warning C4267: инициализация: преобразование из "size_t" в "int"; возможна потеря данных
   ByteKeeper.vcxproj -> D:\IP31\УП.01.01 Евтухов\ByteKeeper\x64\Debug\ByteKeeper.exe
