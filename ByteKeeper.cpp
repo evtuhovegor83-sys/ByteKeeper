@@ -6,6 +6,8 @@
 #include <cwchar>
 #include <iomanip>
 #include <fstream>
+#include <sstream>
+#include <vector>
 #include <windows.h>
 #include "DatabaseManager.h"
 
@@ -41,6 +43,7 @@ void showMenu() {
     cout << "9. Показать логи\n";
     cout << "10. Просмотр с пагинацией\n";
     cout << "11. Проверить состояние сервера\n";
+    cout << "12. Интеллектуальный поиск (несколько ключевых слов)\n";
     cout << "0. Выход\n";
     cout << "========================================\n";
     cout << "Ваш выбор: ";
@@ -959,7 +962,6 @@ void viewAllFilesPaginated() {
 void pingServer() {
     SQLHSTMT stmt = db.getStatement();
 
-    // Простой запрос для проверки соединения
     SQLWCHAR query[] = L"SELECT 1";
     SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
 
@@ -968,7 +970,6 @@ void pingServer() {
         cout << "Сервер отвечает. Соединение активно.\n";
         setColor(COLOR_DEFAULT);
 
-        // Логирование
         SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
         SQLPrepareW(stmt, queryLog, SQL_NTS);
         wstring logMsg = L"Проверка соединения: успешно";
@@ -980,7 +981,6 @@ void pingServer() {
         cout << "Сервер не отвечает! Соединение потеряно.\n";
         setColor(COLOR_DEFAULT);
 
-        // Получаем диагностическую информацию
         SQLWCHAR sqlState[6], message[256];
         SQLINTEGER nativeError;
         SQLSMALLINT textLen;
@@ -997,6 +997,133 @@ void pingServer() {
         }
     }
 
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
+// Функция интеллектуального поиска (несколько ключевых слов)
+void smartSearch() {
+    string input;
+    cout << "Введите ключевые слова для поиска (через пробел): ";
+    cin.ignore();
+    getline(cin, input);
+
+    vector<string> keywords;
+    stringstream ss(input);
+    string word;
+    while (ss >> word) {
+        keywords.push_back(word);
+    }
+
+    if (keywords.empty()) {
+        setColor(COLOR_YELLOW);
+        cout << "Не введено ключевых слов.\n";
+        setColor(COLOR_DEFAULT);
+        return;
+    }
+
+    SQLHSTMT stmt = db.getStatement();
+
+    string sql = "SELECT r.ResourceID, r.Name, r.Size, c.CategoryName, u.UserName, r.isDeleted "
+        "FROM Resources r "
+        "JOIN Categories c ON r.CategoryID = c.CategoryID "
+        "JOIN Users u ON r.OwnerID = u.UserID "
+        "WHERE (";
+
+    for (size_t i = 0; i < keywords.size(); i++) {
+        if (i > 0) sql += " AND ";
+        sql += "r.Name LIKE ?";
+    }
+    sql += ") AND r.isDeleted = 0";
+
+    wstring wsql(sql.begin(), sql.end());
+    SQLRETURN ret = SQLPrepareW(stmt, (SQLWCHAR*)wsql.c_str(), SQL_NTS);
+
+    for (size_t i = 0; i < keywords.size(); i++) {
+        string pattern = "%" + keywords[i] + "%";
+        SQLWCHAR param[256];
+        mbstowcs((wchar_t*)param, pattern.c_str(), 256);
+        SQLBindParameter(stmt, i + 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, param, 0, NULL);
+    }
+
+    ret = SQLExecute(stmt);
+
+    if (ret != SQL_SUCCESS) {
+        setColor(COLOR_RED);
+        cout << "Ошибка при выполнении поиска.\n";
+        setColor(COLOR_DEFAULT);
+        SQLFreeStmt(stmt, SQL_CLOSE);
+        return;
+    }
+
+    setColor(COLOR_CYAN);
+    cout << "\n";
+    cout << "+" << string(25, '-') << "+" << string(15, '-') << "+" << string(20, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+    cout << "| " << left << setw(23) << "Имя файла"
+        << " | " << setw(13) << "Размер (байт)"
+        << " | " << setw(18) << "Владелец"
+        << " | " << setw(18) << "Категория"
+        << " | " << setw(10) << "Статус" << " |\n";
+    cout << "+" << string(25, '-') << "+" << string(15, '-') << "+" << string(20, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+    setColor(COLOR_DEFAULT);
+
+    int count = 0;
+    while (SQLFetch(stmt) == SQL_SUCCESS) {
+        int id;
+        SQLWCHAR name[256];
+        long long size;
+        SQLWCHAR category[256];
+        SQLWCHAR owner[256];
+        int isDeleted;
+
+        SQLGetData(stmt, 1, SQL_C_LONG, &id, 0, NULL);
+        SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
+        SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+        SQLGetData(stmt, 4, SQL_C_WCHAR, category, sizeof(category), NULL);
+        SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
+        SQLGetData(stmt, 6, SQL_C_LONG, &isDeleted, 0, NULL);
+
+        char nameBuf[256], ownerBuf[256], categoryBuf[256];
+        wcstombs(nameBuf, name, 256);
+        wcstombs(ownerBuf, owner, 256);
+        wcstombs(categoryBuf, category, 256);
+
+        string strName(nameBuf);
+        string strOwner(ownerBuf);
+
+        if (strName.length() > 23) strName = strName.substr(0, 20) + "...";
+        if (strOwner.length() > 18) strOwner = strOwner.substr(0, 15) + "...";
+
+        string status = (isDeleted == 1) ? "В корзине" : "Активен";
+
+        setColor(COLOR_GREEN);
+        cout << "| " << left << setw(23) << strName
+            << " | " << setw(13) << size
+            << " | " << setw(18) << strOwner
+            << " | " << setw(18) << categoryBuf
+            << " | " << setw(10) << status << " |\n";
+        count++;
+    }
+
+    setColor(COLOR_DEFAULT);
+    cout << "+" << string(25, '-') << "+" << string(15, '-') << "+" << string(20, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+
+    if (count == 0) {
+        setColor(COLOR_YELLOW);
+        cout << "Ничего не найдено по ключевым словам.\n";
+        setColor(COLOR_DEFAULT);
+    }
+    else {
+        cout << "Найдено записей: " << count << "\n";
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+
+    string logMsgStr = "Интеллектуальный поиск: " + input;
+    wstring logMsg(logMsgStr.begin(), logMsgStr.end());
+    SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
+    SQLPrepareW(stmt, queryLog, SQL_NTS);
+    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, (SQLWCHAR*)logMsg.c_str(), 0, NULL);
+    SQLExecute(stmt);
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
@@ -1067,6 +1194,9 @@ int main() {
             break;
         case 11:
             pingServer();
+            break;
+        case 12:
+            smartSearch();
             break;
         case 0:
             cout << "Выход из программы...\n";
