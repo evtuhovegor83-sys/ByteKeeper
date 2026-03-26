@@ -26,6 +26,7 @@
     <None Include="database.sql" />
     <None Include="migration_add_softdelete.sql" />
     <None Include="migration_add_logs.sql" />
+    <None Include="migration_add_createddate.sql" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DatabaseManager.h">
