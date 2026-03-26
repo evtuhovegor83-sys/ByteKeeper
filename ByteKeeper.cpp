@@ -51,18 +51,22 @@ void showMenu() {
 
 // Функция добавления файла
 void addFile() {
-    string name, categoryName, ownerName;
+    string name, ext, categoryName, ownerName;
     long long size;
     int categoryID = 0, ownerID = 0;
 
-    cout << "Введите имя файла: ";
+    cout << "Введите имя файла (без расширения): ";
     cin >> name;
+    cout << "Введите расширение (txt, pdf, docx, jpg, png): ";
+    cin >> ext;
     cout << "Введите размер (байт): ";
     cin >> size;
     cout << "Введите категорию (Документы, Медиа, Архивы): ";
     cin >> categoryName;
     cout << "Введите имя владельца (Администратор, Иванов, Петров): ";
     cin >> ownerName;
+
+    string fullName = name + "." + ext;
 
     // Проверка имени на запрещённые символы
     regex namePattern(R"(^[a-zA-Z0-9_\-\.]+$)");
@@ -74,10 +78,10 @@ void addFile() {
     }
 
     // Проверка расширения (белый список)
-    regex extPattern(R"(\.(txt|pdf|docx|exe|jpg|png)$)");
-    if (!regex_match(name, extPattern)) {
+    regex extPattern(R"(\.(txt|pdf|docx|jpg|png)$)");
+    if (!regex_match(fullName, extPattern)) {
         setColor(COLOR_RED);
-        cout << "Ошибка! Разрешены только: .txt, .pdf, .docx, .exe, .jpg, .png\n";
+        cout << "Ошибка! Разрешены только: .txt, .pdf, .docx, .jpg, .png\n";
         setColor(COLOR_DEFAULT);
         return;
     }
@@ -127,7 +131,7 @@ void addFile() {
     ret = SQLPrepareW(stmt, queryCheck, SQL_NTS);
 
     SQLWCHAR nameParam[255];
-    mbstowcs((wchar_t*)nameParam, name.c_str(), 255);
+    mbstowcs((wchar_t*)nameParam, fullName.c_str(), 255);
     SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
 
     ret = SQLExecute(stmt);
