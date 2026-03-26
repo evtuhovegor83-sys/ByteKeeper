@@ -6,11 +6,25 @@
 #include <cwchar>
 #include <iomanip>
 #include <fstream>
+#include <windows.h>
 #include "DatabaseManager.h"
 
 using namespace std;
 
 DatabaseManager db;
+
+// Функция для установки цвета текста
+void setColor(int color) {
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    SetConsoleTextAttribute(hConsole, color);
+}
+
+// Цвета
+#define COLOR_DEFAULT 7      // белый на черном
+#define COLOR_GREEN 10       // зеленый (активные файлы)
+#define COLOR_RED 12         // красный (в корзине)
+#define COLOR_YELLOW 14      // желтый (предупреждения)
+#define COLOR_CYAN 11        // голубой (заголовки)
 
 void showMenu() {
     cout << "\n========================================\n";
@@ -49,14 +63,18 @@ void addFile() {
     // Проверка имени на запрещённые символы
     regex namePattern(R"(^[a-zA-Z0-9_\-\.]+$)");
     if (!regex_match(name, namePattern)) {
+        setColor(COLOR_RED);
         cout << "Ошибка! Имя содержит запрещённые символы.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
     // Проверка расширения (белый список)
     regex extPattern(R"(\.(txt|pdf|docx|exe|jpg|png)$)");
     if (!regex_match(name, extPattern)) {
+        setColor(COLOR_RED);
         cout << "Ошибка! Разрешены только: .txt, .pdf, .docx, .exe, .jpg, .png\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
@@ -94,7 +112,9 @@ void addFile() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 
     if (categoryID == 0 || ownerID == 0) {
+        setColor(COLOR_RED);
         cout << "Ошибка! Категория или владелец не найдены.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
@@ -116,7 +136,9 @@ void addFile() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 
     if (exists) {
+        setColor(COLOR_RED);
         cout << "Ошибка! Файл с таким именем уже существует.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
@@ -131,7 +153,9 @@ void addFile() {
 
     ret = SQLExecute(stmt);
     if (ret == SQL_SUCCESS) {
+        setColor(COLOR_GREEN);
         cout << "Файл успешно добавлен!\n";
+        setColor(COLOR_DEFAULT);
 
         // Логирование
         SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
@@ -141,12 +165,14 @@ void addFile() {
         SQLExecute(stmt);
     }
     else {
+        setColor(COLOR_RED);
         cout << "Ошибка при добавлении файла.\n";
+        setColor(COLOR_DEFAULT);
     }
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
-// Функция просмотра всех файлов (с динамической шириной)
+// Функция просмотра всех файлов (с динамической шириной и цветом)
 void viewAllFiles() {
     SQLHSTMT stmt = db.getStatement();
 
@@ -158,7 +184,9 @@ void viewAllFiles() {
     SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
 
     if (ret != SQL_SUCCESS) {
+        setColor(COLOR_RED);
         cout << "Ошибка при выполнении запроса.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
@@ -183,11 +211,14 @@ void viewAllFiles() {
     // Повторно выполняем запрос для вывода
     ret = SQLExecDirectW(stmt, query, SQL_NTS);
     if (ret != SQL_SUCCESS) {
+        setColor(COLOR_RED);
         cout << "Ошибка при выполнении запроса.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
-    // Заголовок таблицы
+    // Заголовок таблицы (голубым цветом)
+    setColor(COLOR_CYAN);
     cout << "\n";
     cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
     cout << "| " << left << setw(maxNameLen) << "Имя файла"
@@ -196,6 +227,7 @@ void viewAllFiles() {
         << " | " << setw(18) << "Категория"
         << " | " << setw(10) << "Статус" << " |\n";
     cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+    setColor(COLOR_DEFAULT);
 
     int count = 0;
     while (SQLFetch(stmt) == SQL_SUCCESS) {
@@ -221,8 +253,6 @@ void viewAllFiles() {
 
         string strName(nameBuf);
         string strOwner(ownerBuf);
-        string strCategory;
-        wcstombs(nullptr, category, 0);
 
         // Обрезаем длинные имена
         if (strName.length() > maxNameLen) strName = strName.substr(0, maxNameLen - 3) + "...";
@@ -234,6 +264,14 @@ void viewAllFiles() {
         char categoryBuf[256];
         wcstombs(categoryBuf, category, 256);
 
+        // Устанавливаем цвет в зависимости от статуса
+        if (isDeleted == 1) {
+            setColor(COLOR_RED);  // красный для корзины
+        }
+        else {
+            setColor(COLOR_GREEN); // зеленый для активных
+        }
+
         cout << "| " << left << setw(maxNameLen) << strName
             << " | " << setw(13) << size
             << " | " << setw(maxOwnerLen) << strOwner
@@ -242,13 +280,14 @@ void viewAllFiles() {
         count++;
     }
 
+    setColor(COLOR_DEFAULT);
     cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
     cout << "Всего записей: " << count << "\n";
 
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
-// Функция поиска по имени (LIKE)
+// Функция поиска по имени (LIKE) с цветом
 void searchByName() {
     string mask;
     cout << "Введите часть имени для поиска: ";
@@ -273,12 +312,15 @@ void searchByName() {
     ret = SQLExecute(stmt);
 
     if (ret != SQL_SUCCESS) {
+        setColor(COLOR_RED);
         cout << "Ошибка при выполнении поиска.\n";
+        setColor(COLOR_DEFAULT);
         SQLFreeStmt(stmt, SQL_CLOSE);
         return;
     }
 
-    // Заголовок таблицы
+    // Заголовок таблицы (голубым)
+    setColor(COLOR_CYAN);
     cout << "\n";
     cout << "+" << string(25, '-') << "+" << string(15, '-') << "+" << string(20, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
     cout << "| " << left << setw(23) << "Имя файла"
@@ -287,6 +329,7 @@ void searchByName() {
         << " | " << setw(18) << "Категория"
         << " | " << setw(10) << "Статус" << " |\n";
     cout << "+" << string(25, '-') << "+" << string(15, '-') << "+" << string(20, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+    setColor(COLOR_DEFAULT);
 
     int count = 0;
     while (SQLFetch(stmt) == SQL_SUCCESS) {
@@ -318,6 +361,7 @@ void searchByName() {
 
         string status = (isDeleted == 1) ? "В корзине" : "Активен";
 
+        setColor(COLOR_GREEN);
         cout << "| " << left << setw(23) << strName
             << " | " << setw(13) << size
             << " | " << setw(18) << strOwner
@@ -326,10 +370,13 @@ void searchByName() {
         count++;
     }
 
+    setColor(COLOR_DEFAULT);
     cout << "+" << string(25, '-') << "+" << string(15, '-') << "+" << string(20, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
 
     if (count == 0) {
+        setColor(COLOR_YELLOW);
         cout << "Ничего не найдено.\n";
+        setColor(COLOR_DEFAULT);
     }
     else {
         cout << "Найдено записей: " << count << "\n";
@@ -338,7 +385,7 @@ void searchByName() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
-// Функция статистики (COUNT/SUM)
+// Функция статистики (COUNT/SUM) с цветом
 void showStatistics() {
     SQLHSTMT stmt = db.getStatement();
 
@@ -351,7 +398,9 @@ void showStatistics() {
     SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
 
     if (ret != SQL_SUCCESS) {
+        setColor(COLOR_RED);
         cout << "Ошибка при выполнении запроса статистики.\n";
+        setColor(COLOR_DEFAULT);
         SQLFreeStmt(stmt, SQL_CLOSE);
         return;
     }
@@ -366,7 +415,9 @@ void showStatistics() {
 
     SQLFreeStmt(stmt, SQL_CLOSE);
 
+    setColor(COLOR_CYAN);
     cout << "\n=== СТАТИСТИКА АРХИВА ===\n";
+    setColor(COLOR_DEFAULT);
     cout << "Всего файлов: " << totalFiles << "\n";
     cout << "Общий размер: " << totalSize << " байт\n";
 
@@ -383,7 +434,9 @@ void showStatistics() {
     ret = SQLExecDirectW(stmt, queryByCategory, SQL_NTS);
 
     if (ret == SQL_SUCCESS) {
+        setColor(COLOR_CYAN);
         cout << "\n--- По категориям ---\n";
+        setColor(COLOR_DEFAULT);
         while (SQLFetch(stmt) == SQL_SUCCESS) {
             SQLWCHAR category[100];
             int count;
@@ -403,7 +456,7 @@ void showStatistics() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
-// Функция удаления в корзину (Soft Delete)
+// Функция удаления в корзину (Soft Delete) с цветом
 void softDeleteFile() {
     string name;
     cout << "Введите имя файла для удаления: ";
@@ -411,7 +464,6 @@ void softDeleteFile() {
 
     SQLHSTMT stmt = db.getStatement();
 
-    // Проверяем, существует ли файл и не удалён ли уже
     SQLWCHAR queryCheck[] = L"SELECT ResourceID, isDeleted FROM Resources WHERE Name = ?";
     SQLRETURN ret = SQLPrepareW(stmt, queryCheck, SQL_NTS);
 
@@ -432,16 +484,19 @@ void softDeleteFile() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 
     if (resourceID == 0) {
+        setColor(COLOR_RED);
         cout << "Файл \"" << name << "\" не найден.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
     if (isDeleted == 1) {
+        setColor(COLOR_YELLOW);
         cout << "Файл уже находится в корзине.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
-    // Выполняем Soft Delete
     SQLWCHAR queryDelete[] = L"UPDATE Resources SET isDeleted = 1 WHERE Name = ?";
     ret = SQLPrepareW(stmt, queryDelete, SQL_NTS);
     SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
@@ -449,9 +504,10 @@ void softDeleteFile() {
     ret = SQLExecute(stmt);
 
     if (ret == SQL_SUCCESS) {
+        setColor(COLOR_YELLOW);
         cout << "Файл \"" << name << "\" перемещён в корзину.\n";
+        setColor(COLOR_DEFAULT);
 
-        // Логирование
         SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
         SQLPrepareW(stmt, queryLog, SQL_NTS);
         wstring logMsg = L"Удалён в корзину: " + wstring(nameParam);
@@ -459,13 +515,15 @@ void softDeleteFile() {
         SQLExecute(stmt);
     }
     else {
+        setColor(COLOR_RED);
         cout << "Ошибка при удалении файла.\n";
+        setColor(COLOR_DEFAULT);
     }
 
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
-// Функция восстановления из корзины
+// Функция восстановления из корзины с цветом
 void restoreFile() {
     string name;
     cout << "Введите имя файла для восстановления: ";
@@ -473,7 +531,6 @@ void restoreFile() {
 
     SQLHSTMT stmt = db.getStatement();
 
-    // Проверяем, существует ли файл и находится ли в корзине
     SQLWCHAR queryCheck[] = L"SELECT ResourceID, isDeleted FROM Resources WHERE Name = ?";
     SQLRETURN ret = SQLPrepareW(stmt, queryCheck, SQL_NTS);
 
@@ -494,16 +551,19 @@ void restoreFile() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 
     if (resourceID == 0) {
+        setColor(COLOR_RED);
         cout << "Файл \"" << name << "\" не найден.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
     if (isDeleted == 0) {
+        setColor(COLOR_YELLOW);
         cout << "Файл не находится в корзине.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
-    // Выполняем восстановление
     SQLWCHAR queryRestore[] = L"UPDATE Resources SET isDeleted = 0 WHERE Name = ?";
     ret = SQLPrepareW(stmt, queryRestore, SQL_NTS);
     SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
@@ -511,9 +571,10 @@ void restoreFile() {
     ret = SQLExecute(stmt);
 
     if (ret == SQL_SUCCESS) {
+        setColor(COLOR_GREEN);
         cout << "Файл \"" << name << "\" восстановлен из корзины.\n";
+        setColor(COLOR_DEFAULT);
 
-        // Логирование
         SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
         SQLPrepareW(stmt, queryLog, SQL_NTS);
         wstring logMsg = L"Восстановлен из корзины: " + wstring(nameParam);
@@ -521,7 +582,9 @@ void restoreFile() {
         SQLExecute(stmt);
     }
     else {
+        setColor(COLOR_RED);
         cout << "Ошибка при восстановлении файла.\n";
+        setColor(COLOR_DEFAULT);
     }
 
     SQLFreeStmt(stmt, SQL_CLOSE);
@@ -535,17 +598,21 @@ void showLogs() {
     SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
 
     if (ret != SQL_SUCCESS) {
+        setColor(COLOR_RED);
         cout << "Ошибка при выполнении запроса.\n";
+        setColor(COLOR_DEFAULT);
         SQLFreeStmt(stmt, SQL_CLOSE);
         return;
     }
 
+    setColor(COLOR_CYAN);
     cout << "\n=== ЖУРНАЛ ДЕЙСТВИЙ ===\n";
     cout << "+" << string(10, '-') << "+" << string(50, '-') << "+" << string(25, '-') << "+\n";
     cout << "| " << left << setw(8) << "ID"
         << " | " << setw(48) << "Действие"
         << " | " << setw(23) << "Время" << " |\n";
     cout << "+" << string(10, '-') << "+" << string(50, '-') << "+" << string(25, '-') << "+\n";
+    setColor(COLOR_DEFAULT);
 
     int count = 0;
     while (SQLFetch(stmt) == SQL_SUCCESS) {
@@ -567,7 +634,9 @@ void showLogs() {
         count++;
     }
 
+    setColor(COLOR_CYAN);
     cout << "+" << string(10, '-') << "+" << string(50, '-') << "+" << string(25, '-') << "+\n";
+    setColor(COLOR_DEFAULT);
     cout << "Всего записей: " << count << "\n";
 
     SQLFreeStmt(stmt, SQL_CLOSE);
@@ -592,20 +661,22 @@ void exportToCSV() {
     SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
 
     if (ret != SQL_SUCCESS) {
+        setColor(COLOR_RED);
         cout << "Ошибка при выполнении запроса.\n";
+        setColor(COLOR_DEFAULT);
         SQLFreeStmt(stmt, SQL_CLOSE);
         return;
     }
 
-    // Открываем файл для записи
     ofstream file(filename);
     if (!file.is_open()) {
+        setColor(COLOR_RED);
         cout << "Ошибка при создании файла.\n";
+        setColor(COLOR_DEFAULT);
         SQLFreeStmt(stmt, SQL_CLOSE);
         return;
     }
 
-    // Заголовки CSV
     file << "Имя файла,Размер (байт),Категория,Владелец,Статус,Дата создания\n";
 
     int count = 0;
@@ -643,9 +714,10 @@ void exportToCSV() {
     file.close();
     SQLFreeStmt(stmt, SQL_CLOSE);
 
+    setColor(COLOR_GREEN);
     cout << "Экспорт выполнен! Сохранено " << count << " записей в файл " << filename << "\n";
+    setColor(COLOR_DEFAULT);
 
-    // Логирование
     SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
     SQLPrepareW(stmt, queryLog, SQL_NTS);
     wstring logMsg = L"Экспорт в CSV: " + wstring(filename.begin(), filename.end());
@@ -654,11 +726,10 @@ void exportToCSV() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
-// Функция очистки старых записей (более 30 дней)
+// Функция очистки старых записей (более 30 дней) с цветом
 void cleanOldFiles() {
     SQLHSTMT stmt = db.getStatement();
 
-    // Сначала считаем, сколько файлов подлежит очистке
     SQLWCHAR queryCount[] = L"SELECT COUNT(*) FROM Resources WHERE isDeleted = 1 AND CreatedDate < DATEADD(month, -1, GETDATE())";
     SQLRETURN ret = SQLExecDirectW(stmt, queryCount, SQL_NTS);
 
@@ -669,11 +740,15 @@ void cleanOldFiles() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 
     if (count == 0) {
+        setColor(COLOR_YELLOW);
         cout << "Нет файлов для очистки (файлы в корзине старше 30 дней не найдены).\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
+    setColor(COLOR_YELLOW);
     cout << "Найдено " << count << " файлов в корзине, созданных более 30 дней назад.\n";
+    setColor(COLOR_DEFAULT);
     cout << "Вы уверены, что хотите удалить их безвозвратно? (y/n): ";
     char confirm;
     cin >> confirm;
@@ -683,14 +758,14 @@ void cleanOldFiles() {
         return;
     }
 
-    // Выполняем удаление
     SQLWCHAR queryDelete[] = L"DELETE FROM Resources WHERE isDeleted = 1 AND CreatedDate < DATEADD(month, -1, GETDATE())";
     ret = SQLExecDirectW(stmt, queryDelete, SQL_NTS);
 
     if (ret == SQL_SUCCESS) {
+        setColor(COLOR_GREEN);
         cout << "Удалено " << count << " старых файлов из корзины.\n";
+        setColor(COLOR_DEFAULT);
 
-        // Логирование
         SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
         SQLPrepareW(stmt, queryLog, SQL_NTS);
         wstring logMsg = L"Очистка старых записей: удалено " + to_wstring(count) + L" файлов";
@@ -698,17 +773,18 @@ void cleanOldFiles() {
         SQLExecute(stmt);
     }
     else {
+        setColor(COLOR_RED);
         cout << "Ошибка при очистке.\n";
+        setColor(COLOR_DEFAULT);
     }
 
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
-// Функция просмотра всех файлов с пагинацией
+// Функция просмотра всех файлов с пагинацией (с цветом)
 void viewAllFilesPaginated() {
     SQLHSTMT stmt = db.getStatement();
 
-    // Сначала узнаем общее количество записей
     SQLWCHAR queryCount[] = L"SELECT COUNT(*) FROM Resources";
     SQLRETURN ret = SQLExecDirectW(stmt, queryCount, SQL_NTS);
 
@@ -719,7 +795,9 @@ void viewAllFilesPaginated() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 
     if (totalRecords == 0) {
+        setColor(COLOR_YELLOW);
         cout << "Нет записей в базе данных.\n";
+        setColor(COLOR_DEFAULT);
         return;
     }
 
@@ -728,7 +806,6 @@ void viewAllFilesPaginated() {
     int currentPage = 1;
 
     while (true) {
-        // Запрос с пагинацией
         SQLWCHAR query[] = L"SELECT r.ResourceID, r.Name, r.Size, c.CategoryName, u.UserName, r.isDeleted "
             L"FROM Resources r "
             L"JOIN Categories c ON r.CategoryID = c.CategoryID "
@@ -745,12 +822,13 @@ void viewAllFilesPaginated() {
         ret = SQLExecute(stmt);
 
         if (ret != SQL_SUCCESS) {
+            setColor(COLOR_RED);
             cout << "Ошибка при выполнении запроса.\n";
+            setColor(COLOR_DEFAULT);
             SQLFreeStmt(stmt, SQL_CLOSE);
             return;
         }
 
-        // Сначала проходим по данным, чтобы узнать максимальную длину имени
         int maxNameLen = 15;
         int maxOwnerLen = 15;
 
@@ -768,7 +846,6 @@ void viewAllFilesPaginated() {
 
         SQLFreeStmt(stmt, SQL_CLOSE);
 
-        // Повторно выполняем запрос для вывода
         ret = SQLPrepareW(stmt, query, SQL_NTS);
         SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_LONG, SQL_INTEGER, 0, 0, &offset, 0, NULL);
         SQLBindParameter(stmt, 2, SQL_PARAM_INPUT, SQL_C_LONG, SQL_INTEGER, 0, 0, &pageSize, 0, NULL);
@@ -776,12 +853,14 @@ void viewAllFilesPaginated() {
         ret = SQLExecute(stmt);
 
         if (ret != SQL_SUCCESS) {
+            setColor(COLOR_RED);
             cout << "Ошибка при выполнении запроса.\n";
+            setColor(COLOR_DEFAULT);
             SQLFreeStmt(stmt, SQL_CLOSE);
             return;
         }
 
-        // Заголовок таблицы
+        setColor(COLOR_CYAN);
         cout << "\n";
         cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
         cout << "| " << left << setw(maxNameLen) << "Имя файла"
@@ -790,6 +869,7 @@ void viewAllFilesPaginated() {
             << " | " << setw(18) << "Категория"
             << " | " << setw(10) << "Статус" << " |\n";
         cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+        setColor(COLOR_DEFAULT);
 
         int count = 0;
         while (SQLFetch(stmt) == SQL_SUCCESS) {
@@ -823,6 +903,13 @@ void viewAllFilesPaginated() {
             char categoryBuf[256];
             wcstombs(categoryBuf, category, 256);
 
+            if (isDeleted == 1) {
+                setColor(COLOR_RED);
+            }
+            else {
+                setColor(COLOR_GREEN);
+            }
+
             cout << "| " << left << setw(maxNameLen) << strName
                 << " | " << setw(13) << size
                 << " | " << setw(maxOwnerLen) << strOwner
@@ -831,12 +918,14 @@ void viewAllFilesPaginated() {
             count++;
         }
 
+        setColor(COLOR_DEFAULT);
         cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+        setColor(COLOR_CYAN);
         cout << "Страница " << currentPage << " из " << totalPages << " (всего записей: " << totalRecords << ")\n";
+        setColor(COLOR_DEFAULT);
 
         SQLFreeStmt(stmt, SQL_CLOSE);
 
-        // Навигация
         if (currentPage < totalPages) {
             cout << "n - следующая страница, p - предыдущая, q - выход: ";
             char input;
@@ -857,7 +946,9 @@ void viewAllFilesPaginated() {
             }
         }
         else {
+            setColor(COLOR_YELLOW);
             cout << "\nЭто последняя страница.\n";
+            setColor(COLOR_DEFAULT);
             break;
         }
     }
@@ -875,7 +966,9 @@ int main() {
     cin >> database;
 
     if (!db.connect(server, database)) {
+        setColor(COLOR_RED);
         cout << "Не удалось подключиться к базе данных. Программа завершена.\n";
+        setColor(COLOR_DEFAULT);
         return 1;
     }
 
@@ -889,7 +982,9 @@ int main() {
         if (cin.fail()) {
             cin.clear();
             cin.ignore(10000, '\n');
+            setColor(COLOR_RED);
             cout << "Ошибка! Введите число.\n";
+            setColor(COLOR_DEFAULT);
             continue;
         }
 
@@ -921,14 +1016,16 @@ int main() {
         case 9:
             showLogs();
             break;
-        case 0:
-            cout << "Выход из программы...\n";
-            break;
         case 10:
             viewAllFilesPaginated();
             break;
+        case 0:
+            cout << "Выход из программы...\n";
+            break;
         default:
+            setColor(COLOR_YELLOW);
             cout << "Функция будет реализована позже...\n";
+            setColor(COLOR_DEFAULT);
         }
     } while (choice != 0);
 
