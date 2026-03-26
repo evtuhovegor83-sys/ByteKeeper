@@ -5,6 +5,7 @@
 #include <string>
 #include <cwchar>
 #include <iomanip>
+#include <fstream>
 #include "DatabaseManager.h"
 
 using namespace std;
@@ -571,6 +572,87 @@ void showLogs() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
+// Функция экспорта в CSV
+void exportToCSV() {
+    string filename;
+    cout << "Введите имя файла для экспорта (например, report.csv): ";
+    cin >> filename;
+
+    SQLHSTMT stmt = db.getStatement();
+
+    SQLWCHAR query[] = L"SELECT r.Name, r.Size, c.CategoryName, u.UserName, "
+        L"CASE WHEN r.isDeleted = 1 THEN 'В корзине' ELSE 'Активен' END as Status, "
+        L"r.CreatedDate "
+        L"FROM Resources r "
+        L"JOIN Categories c ON r.CategoryID = c.CategoryID "
+        L"JOIN Users u ON r.OwnerID = u.UserID "
+        L"ORDER BY r.ResourceID";
+
+    SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
+
+    if (ret != SQL_SUCCESS) {
+        cout << "Ошибка при выполнении запроса.\n";
+        SQLFreeStmt(stmt, SQL_CLOSE);
+        return;
+    }
+
+    // Открываем файл для записи
+    ofstream file(filename);
+    if (!file.is_open()) {
+        cout << "Ошибка при создании файла.\n";
+        SQLFreeStmt(stmt, SQL_CLOSE);
+        return;
+    }
+
+    // Заголовки CSV
+    file << "Имя файла,Размер (байт),Категория,Владелец,Статус,Дата создания\n";
+
+    int count = 0;
+    while (SQLFetch(stmt) == SQL_SUCCESS) {
+        SQLWCHAR name[256];
+        long long size;
+        SQLWCHAR category[256];
+        SQLWCHAR owner[256];
+        SQLWCHAR status[256];
+        SQLWCHAR createdDate[64];
+
+        SQLGetData(stmt, 1, SQL_C_WCHAR, name, sizeof(name), NULL);
+        SQLGetData(stmt, 2, SQL_C_SLONG, &size, 0, NULL);
+        SQLGetData(stmt, 3, SQL_C_WCHAR, category, sizeof(category), NULL);
+        SQLGetData(stmt, 4, SQL_C_WCHAR, owner, sizeof(owner), NULL);
+        SQLGetData(stmt, 5, SQL_C_WCHAR, status, sizeof(status), NULL);
+        SQLGetData(stmt, 6, SQL_C_WCHAR, createdDate, sizeof(createdDate), NULL);
+
+        char nameBuf[256], categoryBuf[256], ownerBuf[256], statusBuf[256], dateBuf[64];
+        wcstombs(nameBuf, name, 256);
+        wcstombs(categoryBuf, category, 256);
+        wcstombs(ownerBuf, owner, 256);
+        wcstombs(statusBuf, status, 256);
+        wcstombs(dateBuf, createdDate, 64);
+
+        file << "\"" << nameBuf << "\","
+            << size << ","
+            << "\"" << categoryBuf << "\","
+            << "\"" << ownerBuf << "\","
+            << "\"" << statusBuf << "\","
+            << "\"" << dateBuf << "\"\n";
+        count++;
+    }
+
+    file.close();
+    SQLFreeStmt(stmt, SQL_CLOSE);
+
+    cout << "Экспорт выполнен! Сохранено " << count << " записей в файл " << filename << "\n";
+
+    // Логирование
+    SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
+    SQLPrepareW(stmt, queryLog, SQL_NTS);
+    wstring logMsg = L"Экспорт в CSV: " + wstring(filename.begin(), filename.end());
+    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, (SQLWCHAR*)logMsg.c_str(), 0, NULL);
+    SQLExecute(stmt);
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
 int main() {
     setlocale(LC_ALL, "Russian");
 
@@ -619,6 +701,9 @@ int main() {
             break;
         case 6:
             showStatistics();
+            break;
+        case 8:
+            exportToCSV();
             break;
         case 9:
             showLogs();
