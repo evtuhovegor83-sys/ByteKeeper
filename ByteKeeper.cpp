@@ -525,6 +525,52 @@ void restoreFile() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
+// Функция просмотра логов
+void showLogs() {
+    SQLHSTMT stmt = db.getStatement();
+
+    SQLWCHAR query[] = L"SELECT LogID, Action, Timestamp FROM Logs ORDER BY Timestamp DESC";
+    SQLRETURN ret = SQLExecDirectW(stmt, query, SQL_NTS);
+
+    if (ret != SQL_SUCCESS) {
+        cout << "Ошибка при выполнении запроса.\n";
+        SQLFreeStmt(stmt, SQL_CLOSE);
+        return;
+    }
+
+    cout << "\n=== ЖУРНАЛ ДЕЙСТВИЙ ===\n";
+    cout << "+" << string(10, '-') << "+" << string(50, '-') << "+" << string(25, '-') << "+\n";
+    cout << "| " << left << setw(8) << "ID"
+        << " | " << setw(48) << "Действие"
+        << " | " << setw(23) << "Время" << " |\n";
+    cout << "+" << string(10, '-') << "+" << string(50, '-') << "+" << string(25, '-') << "+\n";
+
+    int count = 0;
+    while (SQLFetch(stmt) == SQL_SUCCESS) {
+        int logID;
+        SQLWCHAR action[512];
+        SQLWCHAR timestamp[64];
+
+        SQLGetData(stmt, 1, SQL_C_LONG, &logID, 0, NULL);
+        SQLGetData(stmt, 2, SQL_C_WCHAR, action, sizeof(action), NULL);
+        SQLGetData(stmt, 3, SQL_C_WCHAR, timestamp, sizeof(timestamp), NULL);
+
+        char actionBuf[512], timeBuf[64];
+        wcstombs(actionBuf, action, 512);
+        wcstombs(timeBuf, timestamp, 64);
+
+        cout << "| " << setw(8) << logID
+            << " | " << setw(48) << actionBuf
+            << " | " << setw(23) << timeBuf << " |\n";
+        count++;
+    }
+
+    cout << "+" << string(10, '-') << "+" << string(50, '-') << "+" << string(25, '-') << "+\n";
+    cout << "Всего записей: " << count << "\n";
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
 int main() {
     setlocale(LC_ALL, "Russian");
 
@@ -573,6 +619,9 @@ int main() {
             break;
         case 6:
             showStatistics();
+            break;
+        case 9:
+            showLogs();
             break;
         case 0:
             cout << "Выход из программы...\n";
