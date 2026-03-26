@@ -120,7 +120,7 @@ void addFile() {
     }
 
     // INSERT
-    SQLWCHAR queryInsert[] = L"INSERT INTO Resources (Name, Size, CategoryID, OwnerID, isDeleted) VALUES (?, ?, ?, ?, 0)";
+    SQLWCHAR queryInsert[] = L"INSERT INTO Resources (Name, Size, CategoryID, OwnerID, isDeleted, CreatedDate) VALUES (?, ?, ?, ?, 0, GETDATE())";
     ret = SQLPrepareW(stmt, queryInsert, SQL_NTS);
 
     SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
@@ -512,7 +512,7 @@ void restoreFile() {
     if (ret == SQL_SUCCESS) {
         cout << "Файл \"" << name << "\" восстановлен из корзины.\n";
 
-        // Логирование (если таблица Logs есть)
+        // Логирование
         SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
         SQLPrepareW(stmt, queryLog, SQL_NTS);
         wstring logMsg = L"Восстановлен из корзины: " + wstring(nameParam);
@@ -653,6 +653,56 @@ void exportToCSV() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
+// Функция очистки старых записей (более 30 дней)
+void cleanOldFiles() {
+    SQLHSTMT stmt = db.getStatement();
+
+    // Сначала считаем, сколько файлов подлежит очистке
+    SQLWCHAR queryCount[] = L"SELECT COUNT(*) FROM Resources WHERE isDeleted = 1 AND CreatedDate < DATEADD(month, -1, GETDATE())";
+    SQLRETURN ret = SQLExecDirectW(stmt, queryCount, SQL_NTS);
+
+    int count = 0;
+    if (ret == SQL_SUCCESS && SQLFetch(stmt) == SQL_SUCCESS) {
+        SQLGetData(stmt, 1, SQL_C_LONG, &count, 0, NULL);
+    }
+    SQLFreeStmt(stmt, SQL_CLOSE);
+
+    if (count == 0) {
+        cout << "Нет файлов для очистки (файлы в корзине старше 30 дней не найдены).\n";
+        return;
+    }
+
+    cout << "Найдено " << count << " файлов в корзине, созданных более 30 дней назад.\n";
+    cout << "Вы уверены, что хотите удалить их безвозвратно? (y/n): ";
+    char confirm;
+    cin >> confirm;
+
+    if (confirm != 'y' && confirm != 'Y') {
+        cout << "Операция отменена.\n";
+        return;
+    }
+
+    // Выполняем удаление
+    SQLWCHAR queryDelete[] = L"DELETE FROM Resources WHERE isDeleted = 1 AND CreatedDate < DATEADD(month, -1, GETDATE())";
+    ret = SQLExecDirectW(stmt, queryDelete, SQL_NTS);
+
+    if (ret == SQL_SUCCESS) {
+        cout << "Удалено " << count << " старых файлов из корзины.\n";
+
+        // Логирование
+        SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
+        SQLPrepareW(stmt, queryLog, SQL_NTS);
+        wstring logMsg = L"Очистка старых записей: удалено " + to_wstring(count) + L" файлов";
+        SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, (SQLWCHAR*)logMsg.c_str(), 0, NULL);
+        SQLExecute(stmt);
+    }
+    else {
+        cout << "Ошибка при очистке.\n";
+    }
+
+    SQLFreeStmt(stmt, SQL_CLOSE);
+}
+
 int main() {
     setlocale(LC_ALL, "Russian");
 
@@ -701,6 +751,9 @@ int main() {
             break;
         case 6:
             showStatistics();
+            break;
+        case 7:
+            cleanOldFiles();
             break;
         case 8:
             exportToCSV();
