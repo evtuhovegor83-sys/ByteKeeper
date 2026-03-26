@@ -25,6 +25,7 @@ void showMenu() {
     cout << "7. Очистка старых записей\n";
     cout << "8. Экспорт в CSV\n";
     cout << "9. Показать логи\n";
+    cout << "10. Просмотр с пагинацией\n";
     cout << "0. Выход\n";
     cout << "========================================\n";
     cout << "Ваш выбор: ";
@@ -703,6 +704,165 @@ void cleanOldFiles() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
+// Функция просмотра всех файлов с пагинацией
+void viewAllFilesPaginated() {
+    SQLHSTMT stmt = db.getStatement();
+
+    // Сначала узнаем общее количество записей
+    SQLWCHAR queryCount[] = L"SELECT COUNT(*) FROM Resources";
+    SQLRETURN ret = SQLExecDirectW(stmt, queryCount, SQL_NTS);
+
+    int totalRecords = 0;
+    if (ret == SQL_SUCCESS && SQLFetch(stmt) == SQL_SUCCESS) {
+        SQLGetData(stmt, 1, SQL_C_LONG, &totalRecords, 0, NULL);
+    }
+    SQLFreeStmt(stmt, SQL_CLOSE);
+
+    if (totalRecords == 0) {
+        cout << "Нет записей в базе данных.\n";
+        return;
+    }
+
+    int pageSize = 10;
+    int totalPages = (totalRecords + pageSize - 1) / pageSize;
+    int currentPage = 1;
+
+    while (true) {
+        // Запрос с пагинацией
+        SQLWCHAR query[] = L"SELECT r.ResourceID, r.Name, r.Size, c.CategoryName, u.UserName, r.isDeleted "
+            L"FROM Resources r "
+            L"JOIN Categories c ON r.CategoryID = c.CategoryID "
+            L"JOIN Users u ON r.OwnerID = u.UserID "
+            L"ORDER BY r.ResourceID "
+            L"OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
+
+        SQLRETURN ret = SQLPrepareW(stmt, query, SQL_NTS);
+
+        int offset = (currentPage - 1) * pageSize;
+        SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_LONG, SQL_INTEGER, 0, 0, &offset, 0, NULL);
+        SQLBindParameter(stmt, 2, SQL_PARAM_INPUT, SQL_C_LONG, SQL_INTEGER, 0, 0, &pageSize, 0, NULL);
+
+        ret = SQLExecute(stmt);
+
+        if (ret != SQL_SUCCESS) {
+            cout << "Ошибка при выполнении запроса.\n";
+            SQLFreeStmt(stmt, SQL_CLOSE);
+            return;
+        }
+
+        // Сначала проходим по данным, чтобы узнать максимальную длину имени
+        int maxNameLen = 15;
+        int maxOwnerLen = 15;
+
+        while (SQLFetch(stmt) == SQL_SUCCESS) {
+            SQLWCHAR name[256];
+            SQLWCHAR owner[256];
+            SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
+            SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
+
+            int nameLen = wcslen(name);
+            int ownerLen = wcslen(owner);
+            if (nameLen > maxNameLen) maxNameLen = min(nameLen, 30);
+            if (ownerLen > maxOwnerLen) maxOwnerLen = min(ownerLen, 30);
+        }
+
+        SQLFreeStmt(stmt, SQL_CLOSE);
+
+        // Повторно выполняем запрос для вывода
+        ret = SQLPrepareW(stmt, query, SQL_NTS);
+        SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_LONG, SQL_INTEGER, 0, 0, &offset, 0, NULL);
+        SQLBindParameter(stmt, 2, SQL_PARAM_INPUT, SQL_C_LONG, SQL_INTEGER, 0, 0, &pageSize, 0, NULL);
+
+        ret = SQLExecute(stmt);
+
+        if (ret != SQL_SUCCESS) {
+            cout << "Ошибка при выполнении запроса.\n";
+            SQLFreeStmt(stmt, SQL_CLOSE);
+            return;
+        }
+
+        // Заголовок таблицы
+        cout << "\n";
+        cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+        cout << "| " << left << setw(maxNameLen) << "Имя файла"
+            << " | " << setw(13) << "Размер (байт)"
+            << " | " << setw(maxOwnerLen) << "Владелец"
+            << " | " << setw(18) << "Категория"
+            << " | " << setw(10) << "Статус" << " |\n";
+        cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+
+        int count = 0;
+        while (SQLFetch(stmt) == SQL_SUCCESS) {
+            int id;
+            SQLWCHAR name[256];
+            long long size;
+            SQLWCHAR category[256];
+            SQLWCHAR owner[256];
+            int isDeleted;
+
+            SQLGetData(stmt, 1, SQL_C_LONG, &id, 0, NULL);
+            SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
+            SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+            SQLGetData(stmt, 4, SQL_C_WCHAR, category, sizeof(category), NULL);
+            SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
+            SQLGetData(stmt, 6, SQL_C_LONG, &isDeleted, 0, NULL);
+
+            char nameBuf[256];
+            char ownerBuf[256];
+            wcstombs(nameBuf, name, 256);
+            wcstombs(ownerBuf, owner, 256);
+
+            string strName(nameBuf);
+            string strOwner(ownerBuf);
+
+            if (strName.length() > maxNameLen) strName = strName.substr(0, maxNameLen - 3) + "...";
+            if (strOwner.length() > maxOwnerLen) strOwner = strOwner.substr(0, maxOwnerLen - 3) + "...";
+
+            string status = (isDeleted == 1) ? "В корзине" : "Активен";
+
+            char categoryBuf[256];
+            wcstombs(categoryBuf, category, 256);
+
+            cout << "| " << left << setw(maxNameLen) << strName
+                << " | " << setw(13) << size
+                << " | " << setw(maxOwnerLen) << strOwner
+                << " | " << setw(18) << categoryBuf
+                << " | " << setw(10) << status << " |\n";
+            count++;
+        }
+
+        cout << "+" << string(maxNameLen + 2, '-') << "+" << string(15, '-') << "+" << string(maxOwnerLen + 2, '-') << "+" << string(20, '-') << "+" << string(12, '-') << "+\n";
+        cout << "Страница " << currentPage << " из " << totalPages << " (всего записей: " << totalRecords << ")\n";
+
+        SQLFreeStmt(stmt, SQL_CLOSE);
+
+        // Навигация
+        if (currentPage < totalPages) {
+            cout << "n - следующая страница, p - предыдущая, q - выход: ";
+            char input;
+            cin >> input;
+
+            if (input == 'n' || input == 'N') {
+                currentPage++;
+                continue;
+            }
+            else if (input == 'p' || input == 'P') {
+                if (currentPage > 1) {
+                    currentPage--;
+                }
+                continue;
+            }
+            else {
+                break;
+            }
+        }
+        else {
+            cout << "\nЭто последняя страница.\n";
+            break;
+        }
+    }
+}
+
 int main() {
     setlocale(LC_ALL, "Russian");
 
@@ -763,6 +923,9 @@ int main() {
             break;
         case 0:
             cout << "Выход из программы...\n";
+            break;
+        case 10:
+            viewAllFilesPaginated();
             break;
         default:
             cout << "Функция будет реализована позже...\n";
