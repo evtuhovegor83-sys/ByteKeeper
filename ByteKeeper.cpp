@@ -51,7 +51,7 @@ void showMenu() {
 
 // Функция добавления файла
 void addFile() {
-    string name, ext, categoryName, ownerName;
+    string name, ext;
     long long size;
     int categoryID = 0, ownerID = 0;
 
@@ -61,10 +61,6 @@ void addFile() {
     cin >> ext;
     cout << "Введите размер (байт): ";
     cin >> size;
-    cout << "Введите категорию (Документы, Медиа, Архивы): ";
-    cin >> categoryName;
-    cout << "Введите имя владельца (Администратор, Иванов, Петров): ";
-    cin >> ownerName;
 
     string fullName = name + "." + ext;
 
@@ -78,10 +74,49 @@ void addFile() {
     }
 
     // Проверка расширения (белый список)
-    regex extPattern(R"(\.(txt|pdf|docx|jpg|png)$)");
-    if (!regex_match(fullName, extPattern)) {
+    if (ext != "txt" && ext != "pdf" && ext != "docx" && ext != "jpg" && ext != "png") {
         setColor(COLOR_RED);
         cout << "Ошибка! Разрешены только: .txt, .pdf, .docx, .jpg, .png\n";
+        setColor(COLOR_DEFAULT);
+        return;
+    }
+
+    // Выбор категории по ID
+    cout << "\nВыберите категорию:\n";
+    cout << "1. Документы\n";
+    cout << "2. Медиа\n";
+    cout << "3. Архивы\n";
+    cout << "Ваш выбор: ";
+    int catChoice;
+    cin >> catChoice;
+
+    switch (catChoice) {
+    case 1: categoryID = 1; break;
+    case 2: categoryID = 2; break;
+    case 3: categoryID = 3; break;
+    default:
+        setColor(COLOR_RED);
+        cout << "Неверный выбор категории!\n";
+        setColor(COLOR_DEFAULT);
+        return;
+    }
+
+    // Выбор владельца по ID
+    cout << "\nВыберите владельца:\n";
+    cout << "1. Администратор\n";
+    cout << "2. Иванов\n";
+    cout << "3. Петров\n";
+    cout << "Ваш выбор: ";
+    int ownerChoice;
+    cin >> ownerChoice;
+
+    switch (ownerChoice) {
+    case 1: ownerID = 1; break;
+    case 2: ownerID = 2; break;
+    case 3: ownerID = 3; break;
+    default:
+        setColor(COLOR_RED);
+        cout << "Неверный выбор владельца!\n";
         setColor(COLOR_DEFAULT);
         return;
     }
@@ -89,57 +124,14 @@ void addFile() {
     SQLHSTMT stmt = db.getStatement();
     SQLRETURN ret;
 
-    // Получаем CategoryID
-    SQLWCHAR queryCategory[] = L"SELECT CategoryID FROM Categories WHERE CategoryName = ?";
-    ret = SQLPrepareW(stmt, queryCategory, SQL_NTS);
-
-    SQLWCHAR categoryParam[100];
-    mbstowcs((wchar_t*)categoryParam, categoryName.c_str(), 100);
-    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 100, 0, categoryParam, 0, NULL);
-
-    ret = SQLExecute(stmt);
-    if (ret == SQL_SUCCESS) {
-        SQLFetch(stmt);
-        SQLGetData(stmt, 1, SQL_C_LONG, &categoryID, 0, NULL);
-    }
-    SQLFreeStmt(stmt, SQL_CLOSE);
-
-    // Получаем OwnerID
-    SQLWCHAR queryOwner[] = L"SELECT UserID FROM Users WHERE UserName = ?";
-    ret = SQLPrepareW(stmt, queryOwner, SQL_NTS);
-
-    SQLWCHAR ownerParam[100];
-    mbstowcs((wchar_t*)ownerParam, ownerName.c_str(), 100);
-    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 100, 0, ownerParam, 0, NULL);
-
-    ret = SQLExecute(stmt);
-    if (ret == SQL_SUCCESS) {
-        SQLFetch(stmt);
-        SQLGetData(stmt, 1, SQL_C_LONG, &ownerID, 0, NULL);
-    }
-    SQLFreeStmt(stmt, SQL_CLOSE);
-
-    if (categoryID == 0 || ownerID == 0) {
-        setColor(COLOR_RED);
-        cout << "Ошибка! Категория или владелец не найдены.\n";
-        setColor(COLOR_DEFAULT);
-        return;
-    }
-
     // Проверка дубликатов
-    SQLWCHAR queryCheck[] = L"SELECT ResourceID FROM Resources WHERE Name = ? AND isDeleted = 0";
-    ret = SQLPrepareW(stmt, queryCheck, SQL_NTS);
+    wstring wfullName(fullName.begin(), fullName.end());
+    wstring queryCheck = L"SELECT ResourceID FROM Resources WHERE Name = N'" + wfullName + L"' AND isDeleted = 0";
+    ret = SQLExecDirectW(stmt, (SQLWCHAR*)queryCheck.c_str(), SQL_NTS);
 
-    SQLWCHAR nameParam[255];
-    mbstowcs((wchar_t*)nameParam, fullName.c_str(), 255);
-    SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
-
-    ret = SQLExecute(stmt);
     int exists = 0;
-    if (ret == SQL_SUCCESS) {
-        if (SQLFetch(stmt) == SQL_SUCCESS) {
-            exists = 1;
-        }
+    if (ret == SQL_SUCCESS && SQLFetch(stmt) == SQL_SUCCESS) {
+        exists = 1;
     }
     SQLFreeStmt(stmt, SQL_CLOSE);
 
@@ -150,27 +142,31 @@ void addFile() {
         return;
     }
 
-    // INSERT
+    // Используем параметризованный запрос для размера
     SQLWCHAR queryInsert[] = L"INSERT INTO Resources (Name, Size, CategoryID, OwnerID, isDeleted, CreatedDate) VALUES (?, ?, ?, ?, 0, GETDATE())";
     ret = SQLPrepareW(stmt, queryInsert, SQL_NTS);
 
+    // Привязываем параметры
+    SQLWCHAR nameParam[255];
+    mbstowcs((wchar_t*)nameParam, fullName.c_str(), 255);
     SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, nameParam, 0, NULL);
-    SQLBindParameter(stmt, 2, SQL_PARAM_INPUT, SQL_C_SLONG, SQL_INTEGER, 0, 0, &size, 0, NULL);
+
+    // Размер - используем SQL_C_SBIGINT для 64-битных чисел
+    SQLBindParameter(stmt, 2, SQL_PARAM_INPUT, SQL_C_SBIGINT, SQL_BIGINT, 0, 0, &size, 0, NULL);
+
     SQLBindParameter(stmt, 3, SQL_PARAM_INPUT, SQL_C_LONG, SQL_INTEGER, 0, 0, &categoryID, 0, NULL);
     SQLBindParameter(stmt, 4, SQL_PARAM_INPUT, SQL_C_LONG, SQL_INTEGER, 0, 0, &ownerID, 0, NULL);
 
     ret = SQLExecute(stmt);
+
     if (ret == SQL_SUCCESS) {
         setColor(COLOR_GREEN);
         cout << "Файл успешно добавлен!\n";
         setColor(COLOR_DEFAULT);
 
         // Логирование
-        SQLWCHAR queryLog[] = L"INSERT INTO Logs (Action) VALUES (?)";
-        SQLPrepareW(stmt, queryLog, SQL_NTS);
-        wstring logMsg = L"Добавлен файл: " + wstring(nameParam);
-        SQLBindParameter(stmt, 1, SQL_PARAM_INPUT, SQL_C_WCHAR, SQL_WVARCHAR, 255, 0, (SQLWCHAR*)logMsg.c_str(), 0, NULL);
-        SQLExecute(stmt);
+        wstring queryLog = L"INSERT INTO Logs (Action) VALUES (N'Добавлен файл: " + wfullName + L"')";
+        SQLExecDirectW(stmt, (SQLWCHAR*)queryLog.c_str(), SQL_NTS);
     }
     else {
         setColor(COLOR_RED);
@@ -180,7 +176,6 @@ void addFile() {
     SQLFreeStmt(stmt, SQL_CLOSE);
 }
 
-// Функция просмотра всех файлов (с динамической шириной и цветом)
 void viewAllFiles() {
     SQLHSTMT stmt = db.getStatement();
 
@@ -248,7 +243,7 @@ void viewAllFiles() {
 
         SQLGetData(stmt, 1, SQL_C_LONG, &id, 0, NULL);
         SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
-        SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+        SQLGetData(stmt, 3, SQL_C_SBIGINT, &size, 0, NULL);
         SQLGetData(stmt, 4, SQL_C_WCHAR, category, sizeof(category), NULL);
         SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
         SQLGetData(stmt, 6, SQL_C_LONG, &isDeleted, 0, NULL);
@@ -350,7 +345,7 @@ void searchByName() {
 
         SQLGetData(stmt, 1, SQL_C_LONG, &id, 0, NULL);
         SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
-        SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+        SQLGetData(stmt, 3, SQL_C_SBIGINT, &size, 0, NULL);
         SQLGetData(stmt, 4, SQL_C_WCHAR, category, sizeof(category), NULL);
         SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
         SQLGetData(stmt, 6, SQL_C_LONG, &isDeleted, 0, NULL);
@@ -418,7 +413,7 @@ void showStatistics() {
 
     if (SQLFetch(stmt) == SQL_SUCCESS) {
         SQLGetData(stmt, 1, SQL_C_LONG, &totalFiles, 0, NULL);
-        SQLGetData(stmt, 2, SQL_C_SLONG, &totalSize, 0, NULL);
+        SQLGetData(stmt, 2, SQL_C_SBIGINT, &totalSize, 0, NULL);
     }
 
     SQLFreeStmt(stmt, SQL_CLOSE);
@@ -452,7 +447,7 @@ void showStatistics() {
 
             SQLGetData(stmt, 1, SQL_C_WCHAR, category, sizeof(category), NULL);
             SQLGetData(stmt, 2, SQL_C_LONG, &count, 0, NULL);
-            SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+            SQLGetData(stmt, 3, SQL_C_SBIGINT, &size, 0, NULL);
 
             char categoryBuf[100];
             wcstombs(categoryBuf, category, 100);
@@ -697,7 +692,7 @@ void exportToCSV() {
         SQLWCHAR createdDate[64];
 
         SQLGetData(stmt, 1, SQL_C_WCHAR, name, sizeof(name), NULL);
-        SQLGetData(stmt, 2, SQL_C_SLONG, &size, 0, NULL);
+        SQLGetData(stmt, 2, SQL_C_SBIGINT, &size, 0, NULL);
         SQLGetData(stmt, 3, SQL_C_WCHAR, category, sizeof(category), NULL);
         SQLGetData(stmt, 4, SQL_C_WCHAR, owner, sizeof(owner), NULL);
         SQLGetData(stmt, 5, SQL_C_WCHAR, status, sizeof(status), NULL);
@@ -890,7 +885,7 @@ void viewAllFilesPaginated() {
 
             SQLGetData(stmt, 1, SQL_C_LONG, &id, 0, NULL);
             SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
-            SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+            SQLGetData(stmt, 3, SQL_C_SBIGINT, &size, 0, NULL);
             SQLGetData(stmt, 4, SQL_C_WCHAR, category, sizeof(category), NULL);
             SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
             SQLGetData(stmt, 6, SQL_C_LONG, &isDeleted, 0, NULL);
@@ -1081,7 +1076,7 @@ void smartSearch() {
 
         SQLGetData(stmt, 1, SQL_C_LONG, &id, 0, NULL);
         SQLGetData(stmt, 2, SQL_C_WCHAR, name, sizeof(name), NULL);
-        SQLGetData(stmt, 3, SQL_C_SLONG, &size, 0, NULL);
+        SQLGetData(stmt, 3, SQL_C_SBIGINT, &size, 0, NULL);
         SQLGetData(stmt, 4, SQL_C_WCHAR, category, sizeof(category), NULL);
         SQLGetData(stmt, 5, SQL_C_WCHAR, owner, sizeof(owner), NULL);
         SQLGetData(stmt, 6, SQL_C_LONG, &isDeleted, 0, NULL);
